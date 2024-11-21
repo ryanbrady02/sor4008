@@ -377,7 +377,7 @@ abline(h = truetau, col="red" )
 
 3. Gibbs Sampler
 
-posterior = tau^(n/2 + a - 1) * exp( -tau/2 sum[y-alpha-beta(xi)-delta(xi^2)] - b tau - 1/2((alpha/Sa)^2 + (beta/Sb)^2 + (delta/Sc)^2))
+posterior = tau^(n/2 + a - 1) * exp( -tau/2 sum[y-alpha-beta(xi)-delta(xi^2)] - b tau - 1/2(((alpha-am)^2/Sa)^2 + ((beta-bm)^2/Sb)^2 + ((delta-cm)^2/Sc)^2))
 
 ```{r}
 system.time({
@@ -393,6 +393,10 @@ b = 0.5
 Sa2 = 100
 Sb2 = 100
 Sc2 = 100
+ 
+am = 0
+bm = 0
+cm = 0
 
 
 # Number of iterations and burn-in
@@ -416,19 +420,19 @@ for (i in 1:n_iter) {
   
   # Update alpha
   alphavar <- 1 / (n * newtau + 1 / Sa2)
-  alphasum <- sum(y - beta * x - delta * (x^2))
+  alphasum <- am / Sa2 + sum(y - beta * x - delta * (x^2))
   alphamean <- alphavar * newtau * alphasum
   newalpha <- rnorm(1, mean = alphamean, sd = sqrt(alphavar))
   
   # Update beta
   betavar <- 1 / (newtau * sum(x^2) + 1 / Sb2)
-  betasum <- sum(x * (y - newalpha - delta * (x^2)))
+  betasum <- bm / Sb2 + sum(x * (y - newalpha - delta * (x^2)))
   betamean <- betavar * newtau * betasum
   newbeta <- rnorm(1, mean = betamean, sd = sqrt(betavar))
   
   # Update delta
   deltavar <- 1 / (newtau * sum(x^4) + 1 / Sc2)
-  deltasum <- sum((x^2) * (y - newalpha - newbeta * x))
+  deltasum <- cm / Sc2 + sum((x^2) * (y - newalpha - newbeta * x))
   deltamean <- deltavar * newtau * deltasum
   newdelta <- rnorm(1, mean = deltamean, sd = sqrt(deltavar))
   
