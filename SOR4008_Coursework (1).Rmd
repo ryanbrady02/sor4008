@@ -1,0 +1,710 @@
+---
+title: "Coursework"
+output: html_document
+date: "2024-10-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+system.time({install.packages("ggplot2")
+
+library("ggplot2")
+})
+```
+
+The model that we are trying to fit is
+
+y = alpha + beta x + delta x^2 + epsilon
+
+epsilon~N(0, 1/tau)
+
+We first define the true parameter values
+
+```{r}
+truealpha = 1.0
+truebeta = 1.5
+truedelta = 0.25
+truetau = 1.0
+
+```
+
+Prior parameters: normal on alpha,beta and delta, gamma on tau
+```{r}
+alphamean=0
+alphavar = 100
+betamean=0
+betavar=100
+deltamean=0
+deltavar=100
+taushape=0.5
+tauscale=0.5
+```
+To set up the data we need to use the true parameter values and set up what x is going to be
+
+```{r}
+x = c(3.2, 7.8, 1.5, 9.0, 4.4, 2.1, 6.7, 0.3, 8.6, 5.9, 7.1, 3.8, 9.4, 2.7, 6.2, 1.9, 4.8, 0.6, 5.3, 8.1,
+3.0, 7.4, 1.2, 9.7, 4.1, 2.9, 6.5, 0.8, 8.3, 5.6, 7.9, 3.5, 9.1, 2.4, 6.8, 1.0, 4.9, 0.5, 5.7, 8.9,
+3.3, 7.0, 1.8, 9.3, 4.5, 2.3, 6.1, 0.1, 8.2, 5.4)
+
+set.seed(38)
+
+n = length(x)
+y<-truealpha+truebeta*x+truedelta*(x^2)+rnorm(n,0,((1/truetau)))
+data<-data.frame(y,x)
+
+ggplot(data, aes(x,y))+geom_point()
+
+```
+
+
+1. Importance sampling
+
+We want to take 1000 posterior samples  based on 80000 simulated sets of parameter values from the prior
+
+```{r}
+K<- 80000 #No. of pior samples
+nsamples <- 1000 # No. of posterior samples to take
+
+pred_point <- 10 # value at which to compute the predictive distribution
+```
+
+```{r}
+system.time({
+# Pre-allocate vectors instead of lists
+alphalist <- numeric(nsamples)
+betalist <- numeric(nsamples)
+deltalist <- numeric(nsamples)
+taulist <- numeric(nsamples)
+ressumlist <- numeric(nsamples)
+set.seed(38)
+
+for (i in 1:nsamples) {
+  # Draw K samples from priors
+  alphak <- rnorm(K, alphamean, sqrt(alphavar))
+  betak <- rnorm(K, betamean, sqrt(betavar))
+  deltak <- rnorm(K, deltamean, sqrt(deltavar))
+  tauk <- rgamma(K, taushape, tauscale)
+  
+  # Compute residuals and weights in a vectorized manner
+  res_matrix <- (y - matrix(alphak, nrow = length(y), ncol = K, byrow = TRUE) - 
+                 matrix(betak, nrow = length(y), ncol = K, byrow = TRUE) * x - 
+                 matrix(deltak, nrow = length(y), ncol = K, byrow = TRUE) * (x^2))^2
+  expsum <- colSums(res_matrix)
+  weightsnum <- (tauk / (2 * pi))^(length(y) / 2) * exp(-0.5 * tauk * expsum)
+  
+  # Normalize weights
+  weights <- weightsnum / sum(weightsnum)
+  
+  # Sample from the weighted distribution
+  selected_index <- sample(seq_along(weights), size = 1, prob = weights)
+  
+  # Store selected values
+  alphalist[i] <- alphak[selected_index]
+  betalist[i] <- betak[selected_index]
+  deltalist[i] <- deltak[selected_index]
+  taulist[i] <- tauk[selected_index]
+  ressumlist[i] <- sum(abs(y - alphalist[i] - betalist[i] * x - deltalist[i] * (x^2)))
+}
+
+# Save results in a data frame
+df <- data.frame(
+  alpha = alphalist,
+  beta = betalist,
+  delta = deltalist,
+  tau = taulist,
+  ressum = ressumlist,
+  stringsAsFactors = FALSE
+)
+})
+
+```
+
+```{r}
+posterior_means <- colMeans(df) 
+posterior_means
+
+# Function to compute MSE for importance sampling
+calculate_MSE_IS <- function(y, x, alphalist, betalist, deltalist, taulist) {
+  # Compute fitted values for each posterior sample
+  fitted_values <- alphalist + betalist * x + deltalist * (x^2)
+  
+  # Compute residuals
+  residuals <- y - fitted_values
+  
+  # Compute MSE by averaging the squared residuals
+  MSE <- mean(residuals^2)
+  
+  return(MSE)
+}
+
+# Now calculate MSE using your importance sampling results
+MSE_IS <- calculate_MSE_IS(y, x, alphalist, betalist, deltalist, taulist)
+print(MSE_IS)
+```
+```{r}
+posterior_means[1]
+```
+
+
+```{r}
+# Load necessary library
+library(ggplot2)
+
+# Create frequency charts
+# Histogram for alpha
+ggplot(df, aes(x = alpha)) +
+  geom_histogram(bins = 30, fill = "cyan", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = posterior_means[1], color = "black", linetype = "solid", size = 1) +
+  geom_vline(xintercept = truealpha, color = "red", linetype = "dashed", size = 1) +
+  annotate("text", x = posterior_means[1], y = 80, label = "Posterior Mean", color = "black", hjust = 0,size = 5) +
+  annotate("text", x = truealpha, y = 50, label = "True Value", color = "red", hjust = 1,size = 5) +
+  labs(title = "Frequency Chart for Alpha", x = "Alpha", y = "Frequency") +
+  theme_minimal()
+
+# Histogram for beta
+ggplot(df, aes(x = beta)) +
+  geom_histogram(bins = 30, fill = "pink", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = posterior_means[2], color = "black", linetype = "solid", size = 1) +
+  geom_vline(xintercept = truebeta, color = "red", linetype = "dashed", size = 1) +
+  annotate("text", x = posterior_means[2], y = 80, label = "Posterior Mean", color = "black", hjust = 1,size = 5) +
+  annotate("text", x = truebeta, y = 50, label = "True Value", color = "red", hjust = 0,size = 5) +
+  labs(title = "Frequency Chart for Beta", x = "Beta", y = "Frequency") +
+  theme_minimal()
+
+# Histogram for delta
+ggplot(df, aes(x = delta)) +
+  geom_histogram(bins = 30, fill = "green", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = posterior_means[3], color = "black", linetype = "solid", size = 1) +
+  geom_vline(xintercept = truedelta, color = "red", linetype = "dashed", size = 1) +
+  annotate("text", x = posterior_means[3], y = 100, label = "Posterior Mean", color = "black", hjust = 0,size = 5) +
+  annotate("text", x = truedelta, y = 60, label = "True Value", color = "red", hjust =1,size = 5) +  
+  labs(title = "Frequency Chart for Delta", x = "Delta", y = "Frequency") +
+  theme_minimal()
+
+# Histogram for tau
+ggplot(df, aes(x = tau)) +
+  geom_histogram(bins = 30, fill = "yellow", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = posterior_means[4], color = "black", linetype = "solid", size = 1) +
+  geom_vline(xintercept = truetau, color = "red", linetype = "dashed", size = 1) +
+  annotate("text", x = posterior_means[4], y = 150, label = "Posterior Mean", color = "black", hjust = 1,size = 4) +
+  annotate("text", x = truetau, y = 75, label = "True Value", color = "red", hjust = 0,size = 5) +  
+  labs(title = "Frequency Chart for Tau", x = "Tau", y = "Frequency") +
+  theme_minimal()
+```
+
+LSmeans comparison
+
+```{r}
+install.packages("lsmeans")
+library(lsmeans)
+```
+
+```{r}
+lsmeans_results<-lm(y~x+I(x^2), data)
+summary(lsmeans_results)
+confint(lsmeans_results)
+set.seed(38)
+anova(lsmeans_results)
+sum(lsmeans_results$residuals^2)/qchisq(0.975,df=21)
+sum(lsmeans_results$residuals^2)/qchisq(0.025,df=21)
+```
+
+
+2. Metropolis Hasting
+
+Using the same data try and fit the model using the Metropolis Hastings algorithm. Assume normal priors on alpha, beta and delta, and a uniform prior on the sd.
+
+sd=sqrt(1/tau)
+
+```{r}
+#likelihood
+set.seed(38)
+  likelihood = function(params) {
+  alpha <- params[1]
+  beta <- params[2]
+  delta <- params[3]
+  tau <- params[4]
+  log_lik = sum(dnorm(y, alpha + beta * x + delta * (x^2), sqrt(1/tau), log = TRUE))
+  return(log_lik)
+
+}
+
+```
+
+```{r}
+###prior set up
+
+#alpha,beta,delta means
+am = 0
+bm = 0
+dm = 0
+
+#alpha,beta,delta variances
+Sa = 10
+Sb = 10
+Sc = 10
+
+#tau shape,scale
+a = 0.5
+b = 0.5
+
+set.seed(38)
+prior = function(params) {
+  alpha <- params[1]
+  beta <- params[2]
+  delta <- params[3]
+  tau <- params[4]  
+  if (tau <= 0) return(-Inf)  # Log-prior for tau
+  log_prior = (a-1)*log(tau) + -b*tau + -0.5 * ((alpha - am)^2/(Sa^2) + (beta-bm)^2/(Sb^2) + (delta-dm)^2/(Sc^2))
+  return(log_prior)
+}
+
+```
+
+```{r}
+####posterior set up
+set.seed(38)
+posterior = function(params){
+  return(likelihood(params) + prior(params))
+}
+```
+
+
+```{r}
+###proposal set up
+set.seed(38)
+proposalfunction = function(params) {
+    alpha <- params[1]
+    beta <- params[2]
+    delta <- params[3]
+    tau <- params[4]  
+    new_alpha = rnorm(1, alpha, sd = 0.1)  # Adjust the sd as needed
+    new_beta = rnorm(1, beta, sd = 0.1)
+    new_delta = rnorm(1,delta, sd= 0.1)
+    new_tau = rlnorm(1,log(tau),0.2)
+    return(c(new_alpha, new_beta, new_delta, new_tau))
+}
+```
+
+```{r}
+####function call
+set.seed(38)
+run_metropolis_MCMC = function(startvalue, iterations){
+    chain = array(dim = c(iterations+1,4))
+    chain[1,] = startvalue
+    for (i in 1:iterations){
+        proposal = proposalfunction(chain[i,])
+        probab = exp(posterior(proposal) - posterior(chain[i,]))
+        if (runif(1) < probab){
+            chain[i+1,] = proposal
+        }else{
+            chain[i+1,] = chain[i,]
+        }
+    }
+    return(chain)
+}
+ 
+```
+
+```{r}
+system.time({
+###running a call
+set.seed(38)
+startvalue = c(0,0,0,1)
+chain = run_metropolis_MCMC(startvalue, 1000000)
+ 
+burnIn = 100000
+acceptance = 1-mean(duplicated(chain[-(1:burnIn),]))
+
+MHalpha<-mean(chain[burnIn:1000000,1])
+MHbeta<-mean(chain[burnIn:1000000,2])
+MHdelta<-mean(chain[burnIn:1000000,3])
+MHTau<-mean(chain[burnIn:1000000,4])
+})
+# Define a function to compute the Mean Squared Error (MSE)
+calculate_MSE <- function(y, x, chain, burnIn) {
+  # Compute the fitted values using the posterior mean estimates
+  fitted_values <- chain[burnIn:nrow(chain), 1] + 
+                   chain[burnIn:nrow(chain), 2] * x + 
+                   chain[burnIn:nrow(chain), 3] * (x^2)
+  
+  # Compute residuals
+  residuals <- y - fitted_values
+  
+  # Compute MSE by averaging the squared residuals
+  MSE <- mean(residuals^2)
+  
+  return(MSE)
+}
+
+# Calculate MSE for the chain after burn-in
+burnIn = 100000
+MSE <- calculate_MSE(y, x, chain, burnIn)
+print(MSE)
+```
+
+```{r}
+print(c(MHalpha,MHbeta,MHdelta,MHTau))
+```
+
+```{r}
+par(mfrow = c(2,3))
+hist(chain[-(1:burnIn),1],nclass=30, , main="Posterior of alpha", xlab="True value = red line" )
+abline(v = mean(chain[-(1:burnIn),1]))
+abline(v = truealpha, col="red" )
+hist(chain[-(1:burnIn),2],nclass=30, main="Posterior of beta", xlab="True value = red line")
+abline(v = mean(chain[-(1:burnIn),2]))
+abline(v = truebeta, col="red" )
+hist(chain[-(1:burnIn),3],nclass=30, main="Posterior of delta", xlab="True value = red line")
+abline(v = mean(chain[-(1:burnIn),3]))
+abline(v = truedelta, col="red" )
+hist(chain[-(1:burnIn),4],nclass=30, main="Posterior of sd", xlab="True value = red line")
+abline(v = mean(chain[-(1:burnIn),4]) )
+abline(v = truetau, col="red" )
+plot(chain[-(1:burnIn),1], type = "l", xlab="True value = red line" , main = "Chain values of alpha", )
+abline(h = truealpha, col="red" )
+plot(chain[-(1:burnIn),2], type = "l", xlab="True value = red line" , main = "Chain values of beta", )
+abline(h = truebeta, col="red" )
+plot(chain[-(1:burnIn),3], type = "l", xlab="True value = red line" , main = "Chain values of delta", )
+abline(h = truedelta, col="red" )
+plot(chain[-(1:burnIn),4], type = "l", xlab="True value = red line" , main = "Chain values of sd", )
+abline(h = truetau, col="red" )
+```
+
+
+3. Gibbs Sampler
+
+posterior = tau^(n/2 + a - 1) * exp( -tau/2 sum[y-alpha-beta(xi)-delta(xi^2)] - b tau - 1/2((alpha/Sa)^2 + (beta/Sb)^2 + (delta/Sc)^2))
+
+```{r}
+system.time({
+tau = 1
+alpha = 0
+beta = 0
+delta = 0
+set.seed(38)
+
+a = 0.5
+b = 0.5
+  
+Sa2 = 100
+Sb2 = 100
+Sc2 = 100
+
+
+# Number of iterations and burn-in
+n_iter <- 1000000
+burn_in <- 100000
+
+# Store all samples including burn-in for chain plots
+tau_samples <- numeric(n_iter-burn_in)
+alpha_samples <- numeric(n_iter-burn_in)
+beta_samples <- numeric(n_iter-burn_in)
+delta_samples <- numeric(n_iter-burn_in)
+
+# Gibbs sampler loop
+for (i in 1:n_iter) {
+  
+  # Update tau
+  taushape <- n/2 + a
+  tausum <- sum((y - alpha - beta * x - delta * (x^2))^2)
+  tauscale <- (1 / 2) * tausum + b
+  newtau <- rgamma(1, shape = taushape, scale = 1 / tauscale)
+  
+  # Update alpha
+  alphavar <- 1 / (n * newtau + 1 / Sa2)
+  alphasum <- sum(y - beta * x - delta * (x^2))
+  alphamean <- alphavar * newtau * alphasum
+  newalpha <- rnorm(1, mean = alphamean, sd = sqrt(alphavar))
+  
+  # Update beta
+  betavar <- 1 / (newtau * sum(x^2) + 1 / Sb2)
+  betasum <- sum(x * (y - newalpha - delta * (x^2)))
+  betamean <- betavar * newtau * betasum
+  newbeta <- rnorm(1, mean = betamean, sd = sqrt(betavar))
+  
+  # Update delta
+  deltavar <- 1 / (newtau * sum(x^4) + 1 / Sc2)
+  deltasum <- sum((x^2) * (y - newalpha - newbeta * x))
+  deltamean <- deltavar * newtau * deltasum
+  newdelta <- rnorm(1, mean = deltamean, sd = sqrt(deltavar))
+  
+  # Update values
+  tau <- newtau
+  alpha <- newalpha
+  beta <- newbeta
+  delta <- newdelta
+  
+  
+  # Store samples after burn-in for posterior plots
+  if (i > burn_in) {
+    tau_samples[i - burn_in] <- tau
+    alpha_samples[i - burn_in] <- alpha
+    beta_samples[i - burn_in] <- beta
+    delta_samples[i - burn_in] <- delta
+  }
+}
+})
+
+# Function to compute MSE for Gibbs sampling
+calculate_MSE_Gibbs <- function(y, x, alpha_samples, beta_samples, delta_samples, tau_samples) {
+  # Compute fitted values for each posterior sample
+  fitted_values <- alpha_samples + beta_samples * x + delta_samples * (x^2)
+  
+  # Compute residuals
+  residuals <- y - fitted_values
+  
+  # Compute MSE by averaging the squared residuals
+  MSE <- mean(residuals^2)
+  
+  return(MSE)
+}
+
+# Now calculate MSE using your Gibbs sampling results
+MSE_Gibbs <- calculate_MSE_Gibbs(y, x, alpha_samples, beta_samples, delta_samples, tau_samples)
+print(MSE_Gibbs)
+
+# Plot chain plots and posterior distributions
+par(mfrow = c(2, 4)) # Arrange plots in a 4x2 grid
+
+# Chain plots
+plot(tau_samples, type = "l", main = "Chain for tau", xlab = "Iteration", ylab = "tau")
+abline(h = truetau, col = "red", lwd = 2, lty = 2) # True value
+plot(alpha_samples, type = "l", main = "Chain for alpha", xlab = "Iteration", ylab = "alpha")
+abline(h = truealpha, col = "red", lwd = 2, lty = 2) # True value
+plot(beta_samples, type = "l", main = "Chain for beta", xlab = "Iteration", ylab = "beta")
+abline(h = truebeta, col = "red", lwd = 2, lty = 2) # True value
+plot(delta_samples, type = "l", main = "Chain for delta", xlab = "Iteration", ylab = "delta")
+abline(h = truedelta, col = "red", lwd = 2, lty = 2) # True value
+
+# Posterior distributions
+hist(tau_samples, main = "Posterior of tau", xlab = "tau", col = "lightblue", breaks = 30)
+abline(v = mean(tau_samples), col = "blue", lwd = 2, lty = 2)      # Mean of posterior
+abline(v = truetau, col = "red", lwd = 2)                          # True value
+
+hist(alpha_samples, main = "Posterior of alpha", xlab = "alpha", col = "lightgreen", breaks = 30)
+abline(v = mean(alpha_samples), col = "blue", lwd = 2, lty = 2)    # Mean of posterior
+abline(v = truealpha, col = "red", lwd = 2)                        # True value
+
+hist(beta_samples, main = "Posterior of beta", xlab = "beta", col = "lightpink", breaks = 30)
+abline(v = mean(beta_samples), col = "blue", lwd = 2, lty = 2)     # Mean of posterior
+abline(v = truebeta, col = "red", lwd = 2)                         # True value
+
+hist(delta_samples, main = "Posterior of delta", xlab = "delta", col = "lightcoral", breaks = 30)
+abline(v = mean(delta_samples), col = "blue", lwd = 2, lty = 2)    # Mean of posterior
+abline(v = truedelta, col = "red", lwd = 2)                        # True value
+
+# Add a legend for the posterior distributions
+legend("topright", legend = c("Posterior Mean", "True Value"), col = c("blue", "red"), lwd = 2, lty = c(2, 1))
+
+```
+```{r}
+print(c(mean(alpha_samples),mean(beta_samples),mean(delta_samples),mean(tau_samples)))
+```
+
+
+4. R Packages
+
+```{r}
+install.packages("mcmc")
+install.packages("MCMCpack")
+```
+
+a. Importance Sampling (no R package)
+
+b. Metropolis-Hastings
+
+```{r}
+# Initial values for the parameters (alpha, beta, delta, log(tau))
+library(mcmc)
+
+# Generate some sample data (assuming x values are known)
+set.seed(38)
+system.time({
+# Define the log-posterior function
+log_posterior <- function(params) {
+  alpha <- params[1]
+  beta <- params[2]
+  delta <- params[3]
+  tau <- exp(params[4])  # log(tau) to ensure positive tau
+
+  # Log-likelihood
+  mu <- alpha + beta * x + delta * x^2
+  log_lik <- sum(dnorm(y, mean = mu, sd = sqrt(1/tau), log = TRUE))
+
+  # Log-prior
+  # Assuming normal priors for alpha, beta, delta and gamma prior for tau
+  alpha_prior <- dnorm(alpha, mean = alphamean, sd = sqrt(alphavar), log = TRUE)
+  beta_prior <- dnorm(beta, mean = betamean, sd = sqrt(betavar), log = TRUE)
+  delta_prior <- dnorm(delta, mean = deltamean, sd = sqrt(deltavar), log = TRUE)
+  tau_prior <- dgamma(tau, shape = taushape, scale = tauscale, log = TRUE) + params[4]  # Adjust for log transformation
+
+  # Return log-posterior
+  return(log_lik + alpha_prior + beta_prior + delta_prior + tau_prior)
+}
+
+# Initial values for the parameters (alpha, beta, delta, log(tau))
+init <- c(0, 0, 0, log(1))
+
+# Run the Metropolis sampler
+result <- metrop(log_posterior, initial = init, nbatch = 1000000, scale = c(0.1, 0.1, 0.1, 0.5))
+})
+
+# Function to compute MSE for Metropolis sampling
+calculate_MSE_MCMC <- function(y, x, result) {
+  # Extract posterior samples from the Metropolis result
+  chain <- result$batch
+  
+  # Extract parameter samples (skip the burn-in period if necessary)
+  alpha_samples <- chain[, 1]
+  beta_samples <- chain[, 2]
+  delta_samples <- chain[, 3]
+  tau_samples <- exp(chain[, 4])  # Exponentiate tau to get the original scale
+  
+  # Compute fitted values for each posterior sample
+  fitted_values <- alpha_samples + beta_samples * x + delta_samples * (x^2)
+  
+  # Compute residuals
+  residuals <- y - fitted_values
+  
+  # Compute MSE by averaging the squared residuals
+  MSE <- mean(residuals^2)
+  
+  return(c(MSE,mean(alpha_samples),mean(beta_samples),mean(delta_samples),mean(tau_samples)))
+}
+
+# Now calculate MSE using the Metropolis sampling result
+MSE_metropolis <- calculate_MSE_MCMC(y, x, result)
+print(MSE_metropolis)
+
+# Trace plot and posterior histogram
+par(mfrow = c(2, 2))
+plot(result$batch[, 1], type = "l", main = expression(alpha), ylab = "alpha")
+plot(result$batch[, 2], type = "l", main = expression(beta), ylab = "beta")
+plot(result$batch[, 3], type = "l", main = expression(delta), ylab = "delta")
+plot(exp(result$batch[, 4]), type = "l", main = expression(tau), ylab = "tau")
+
+# Histograms of the posterior samples
+par(mfrow = c(2, 2))
+hist(result$batch[, 1], main = expression(alpha), xlab = "alpha")
+hist(result$batch[, 2], main = expression(beta), xlab = "beta")
+hist(result$batch[, 3], main = expression(delta), xlab = "delta")
+hist(exp(result$batch[, 4]), main = expression(tau), xlab = "tau")
+
+
+```
+
+
+
+c. Gibbs Sampler
+
+
+```{r}
+library(MCMCpack)
+```
+
+```{r}
+# MCMCregress automatically applies a noninformative prior on sigma^2
+system.time({
+mcmc_result <- MCMCregress(y ~ x + I(x^2), 
+                           burnin = 100000, 
+                           mcmc = 1000000, 
+                           thin = 10, 
+                           verbose = 0)
+
+# Summarize the MCMC output
+summary(mcmc_result)
+
+# Plot posterior distributions of parameters
+png("mcmc_result_plot.png", width = 800, height = 600)
+plot(mcmc_result)
+dev.off()
+})
+
+# Function to compute MSE for MCMCregress
+calculate_MSE_MCMCregress <- function(y, x, mcmc_result) {
+  # Extract posterior samples of parameters
+  samples <- as.matrix(mcmc_result)
+  
+  # Extract the samples for intercept, beta (linear term), and delta (quadratic term)
+  intercept_samples <- samples[, 1]
+  beta_samples <- samples[, 2]
+  delta_samples <- samples[, 3]
+  tau_samples < - samples [,4]
+  
+  # Compute fitted values for each posterior sample
+  fitted_values <- intercept_samples + beta_samples * x + delta_samples * (x^2)
+  
+  # Compute residuals
+  residuals <- y - fitted_values
+  
+  # Compute MSE by averaging the squared residuals
+  MSE <- mean(residuals^2)
+  
+  return(c(MSE,mean(intercept_samples),mean(beta_samples),mean(delta_samples),mean(tau_samples)))
+}
+
+# Now calculate MSE using the MCMCregress result
+MSE_mcmc_regress <- calculate_MSE_MCMCregress(y, x, mcmc_result)
+print(MSE_mcmc_regress)
+
+```
+
+5. Maximum Likelihood
+
+```{r}
+install.packages('bbmle')
+```
+
+
+
+```{r}
+# Example data
+set.seed(38)  # For reproducibility
+
+library(bbmle)
+
+# Define the negative log-likelihood
+system.time({neg_log_likelihood <- function(params) {
+  alpha <- params[1]
+  beta <- params[2]
+  delta <- params[3]
+  tau <- params[4]
+  -sum(dnorm(y, mean = alpha + beta * x + delta * (x^2), sd = sqrt(1/tau), log = TRUE))
+}
+
+# Optimization to find MLE
+start_values <- c(alpha = 0, beta = 0, delta = 0, tau = 1)  # Starting guesses
+mle_result <- optim(par = start_values, fn = neg_log_likelihood, method = "BFGS", 
+                    control = list(fnscale = 1), hessian = TRUE)
+})
+# Extract MLE results
+mle_params <- mle_result$par
+mle_params
+
+# Summary of results
+cat("Estimated parameters:\n")
+cat("Alpha:", mle_params[1], "\n")
+cat("Beta:", mle_params[2], "\n")
+cat("Delta:", mle_params[3], "\n")
+cat("Tau:", mle_params[4], "\n")
+
+# Observed y values
+observed_y <- y
+
+
+# Predicted y values using the MLE estimates
+predicted_y <- mle_params["alpha"] + mle_params["beta"] * x + mle_params["delta"] * (x^2)
+
+# Calculate MSE
+mse <- mean((observed_y - predicted_y)^2)
+
+# Print MSE
+cat("Mean Squared Error (MSE) of the model:", mse, "\n")
+
+```
+
+
