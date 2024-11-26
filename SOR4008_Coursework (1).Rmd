@@ -533,7 +533,8 @@ log_posterior <- function(params) {
   alpha <- params[1]
   beta <- params[2]
   delta <- params[3]
-  tau <- exp(params[4])  # log(tau) to ensure positive tau
+  tau <- params[4]
+  if (tau <= 0) return(-Inf)  # Log-prior for tau
 
   # Log-likelihood
   mu <- alpha + beta * x + delta * x^2
@@ -544,17 +545,17 @@ log_posterior <- function(params) {
   alpha_prior <- dnorm(alpha, mean = alphamean, sd = sqrt(alphavar), log = TRUE)
   beta_prior <- dnorm(beta, mean = betamean, sd = sqrt(betavar), log = TRUE)
   delta_prior <- dnorm(delta, mean = deltamean, sd = sqrt(deltavar), log = TRUE)
-  tau_prior <- dgamma(tau, shape = taushape, scale = tauscale, log = TRUE) + params[4]  # Adjust for log transformation
+  tau_prior <- dgamma(tau, shape = taushape, scale = tauscale, log = TRUE)
 
   # Return log-posterior
   return(log_lik + alpha_prior + beta_prior + delta_prior + tau_prior)
 }
 
 # Initial values for the parameters (alpha, beta, delta, log(tau))
-init <- c(0, 0, 0, log(1))
+init <- c(0, 0, 0, 1)
 
 # Run the Metropolis sampler
-result <- metrop(log_posterior, initial = init, nbatch = 1000000, scale = c(0.1, 0.1, 0.1, 0.5))
+result <- metrop(log_posterior, initial = init, nbatch = 1000000, scale = c(0.1, 0.1, 0.1, 0.05))
 })
 
 # Function to compute MSE for Metropolis sampling
@@ -566,7 +567,7 @@ calculate_MSE_MCMC <- function(y, x, result) {
   alpha_samples <- chain[, 1]
   beta_samples <- chain[, 2]
   delta_samples <- chain[, 3]
-  tau_samples <- exp(chain[, 4])  # Exponentiate tau to get the original scale
+  tau_samples <- chain[, 4]
   
   # Compute fitted values for each posterior sample
   fitted_values <- alpha_samples + beta_samples * x + delta_samples * (x^2)
@@ -589,15 +590,14 @@ par(mfrow = c(2, 2))
 plot(result$batch[, 1], type = "l", main = expression(alpha), ylab = "alpha")
 plot(result$batch[, 2], type = "l", main = expression(beta), ylab = "beta")
 plot(result$batch[, 3], type = "l", main = expression(delta), ylab = "delta")
-plot(exp(result$batch[, 4]), type = "l", main = expression(tau), ylab = "tau")
+plot(result$batch[, 4], type = "l", main = expression(tau), ylab = "tau")
 
 # Histograms of the posterior samples
 par(mfrow = c(2, 2))
 hist(result$batch[, 1], main = expression(alpha), xlab = "alpha")
 hist(result$batch[, 2], main = expression(beta), xlab = "beta")
 hist(result$batch[, 3], main = expression(delta), xlab = "delta")
-hist(exp(result$batch[, 4]), main = expression(tau), xlab = "tau")
-
+hist(result$batch[, 4], main = expression(tau), xlab = "tau")
 
 ```
 
