@@ -522,10 +522,8 @@ a. Importance Sampling (no R package)
 b. Metropolis-Hastings
 
 ```{r}
-# Initial values for the parameters (alpha, beta, delta, log(tau))
 library(mcmc)
 
-# Generate some sample data (assuming x values are known)
 set.seed(38)
 system.time({
 # Define the log-posterior function
